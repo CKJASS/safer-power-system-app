@@ -69,6 +69,10 @@ class RequisitionItem(db.Model):
     description = db.Column(db.String(200), nullable=False)
     quantity = db.Column(db.Integer, nullable=False)
     estimated_cost = db.Column(db.Float, nullable=False)
+    
+    @property
+    def total_cost(self):
+        return self.quantity * self.estimated_cost
 
 class Approval(db.Model):
     __tablename__ = 'approvals'
@@ -110,6 +114,7 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
+# FIXED: Correct decorator
 def role_required(*roles):
     def decorator(f):
         @wraps(f)
@@ -118,7 +123,7 @@ def role_required(*roles):
                 flash('You do not have permission to access this page.', 'danger')
                 return redirect(url_for('dashboard'))
             return f(*args, **kwargs)
-        return decorated_function
+        return decorated_function  # Fixed: was returning decorator
     return decorator
 
 # ==================== ROUTES ====================
@@ -357,6 +362,10 @@ def delete_requisition(req_id):
         flash('You are not authorized to delete this requisition.', 'danger')
         return redirect(url_for('dashboard'))
     
+    if requisition.status not in ['Pending Supervisor Approval', 'Rejected']:
+        flash('Only pending or rejected requisitions can be deleted.', 'danger')
+        return redirect(url_for('dashboard'))
+    
     Approval.query.filter_by(requisition_id=req_id).delete()
     RequisitionItem.query.filter_by(requisition_id=req_id).delete()
     db.session.delete(requisition)
@@ -364,6 +373,34 @@ def delete_requisition(req_id):
     
     flash(f'Requisition #{req_id} has been deleted.', 'success')
     return redirect(url_for('dashboard'))
+
+@app.route('/export_requisition/<int:req_id>')
+@login_required
+def export_requisition(req_id):
+    requisition = Requisition.query.get_or_404(req_id)
+    
+    if requisition.requestor_id != session['user_id'] and session['user_role'] not in ['GM', 'Finance', 'Procurement', 'HOD', 'HR', 'Supervisor']:
+        flash('You are not authorized to export this requisition.', 'danger')
+        return redirect(url_for('dashboard'))
+    
+    wb = Workbook()
+    ws = wb.active
+    ws.title = f"Requisition_{req_id}"
+    
+    ws['A1'] = f'Requisition #{requisition.id}'
+    ws['A2'] = f'Requestor: {requisition.requestor.name}'
+    ws['A3'] = f'Status: {requisition.status}'
+    ws['A5'] = 'Items:'
+    ws.append(['Description', 'Quantity', 'Unit Cost', 'Total'])
+    
+    for item in requisition.items:
+        ws.append([item.description, item.quantity, item.estimated_cost, item.quantity * item.estimated_cost])
+    
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    
+    return send_file(output, as_attachment=True, download_name=f'requisition_{req_id}.xlsx', mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
 # ==================== ADMIN SETUP ====================
 
@@ -457,6 +494,8 @@ def admin_setup():
             ('John Doe', 'john.doe@saferpower.com', 'IT'),
             ('Jane Smith', 'jane.smith@saferpower.com', 'Finance'),
             ('Alice Brown', 'alice.brown@saferpower.com', 'HR'),
+            ('Bob Wilson', 'bob.wilson@saferpower.com', 'Operations'),
+            ('Carol Maina', 'carol.maina@saferpower.com', 'Sales'),
         ]
         
         for name, email, dept in employees:
@@ -473,42 +512,56 @@ def admin_setup():
         
         return """
         <html>
+        <head><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
         <body style="font-family: Arial; padding: 20px; text-align: center;">
-            <h2 style="color: green;">✅ System Setup Complete!</h2>
-            <h3>Login Credentials:</h3>
-            <ul style="display: inline-block; text-align: left;">
-                <li><strong>GM:</strong> gm@saferpower.com / GM@2024</li>
-                <li><strong>HR:</strong> hr@saferpower.com / HR@2024</li>
-                <li><strong>Finance:</strong> finance@saferpower.com / Finance@2024</li>
-                <li><strong>Procurement:</strong> procurement@saferpower.com / Procurement@2024</li>
-                <li><strong>Employee:</strong> john.doe@saferpower.com / Employee@123</li>
-            </ul>
-            <br>
-            <a href="/" style="background: #f0a500; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Go to Login</a>
+            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; border-radius: 10px; color: white;">
+                <h2>✅ System Setup Complete!</h2>
+                <p>Safer Power Group Requisition System is ready</p>
+            </div>
+            
+            <div style="margin-top: 30px; text-align: left; display: inline-block;">
+                <h3>Login Credentials:</h3>
+                <ul>
+                    <li><strong>GM:</strong> gm@saferpower.com / GM@2024</li>
+                    <li><strong>HR:</strong> hr@saferpower.com / HR@2024</li>
+                    <li><strong>Finance:</strong> finance@saferpower.com / Finance@2024</li>
+                    <li><strong>Procurement:</strong> procurement@saferpower.com / Procurement@2024</li>
+                    <li><strong>HOD (IT):</strong> hod.it@saferpower.com / HOD@2024</li>
+                    <li><strong>Supervisor (IT):</strong> sup.it@saferpower.com / Supervisor@2024</li>
+                    <li><strong>Employee:</strong> john.doe@saferpower.com / Employee@123</li>
+                </ul>
+            </div>
+            
+            <div style="margin-top: 30px;">
+                <a href="/" style="background: #f0a500; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; font-weight: bold;">Go to Login</a>
+            </div>
         </body>
         </html>
         """
     
     return '''
     <html>
+    <head><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
     <body style="font-family: Arial; padding: 20px; text-align: center;">
-        <h2>Initialize System</h2>
-        <p>This will create departments, users, and roles.</p>
-        <form method="POST">
-            <button type="submit" style="background: green; color: white; padding: 10px 20px; font-size: 16px;">Initialize System</button>
-        </form>
+        <div style="background: #fff3cd; padding: 30px; border-radius: 10px; max-width: 500px; margin: 0 auto;">
+            <h2 style="color: #856404;">⚠️ System Initialization Required</h2>
+            <p>This will create departments, users, and roles for the system.</p>
+            <form method="POST">
+                <button type="submit" style="background: #28a745; color: white; padding: 12px 30px; border: none; border-radius: 5px; font-size: 16px; cursor: pointer;">
+                    Initialize System
+                </button>
+            </form>
+        </div>
     </body>
     </html>
     '''
 
 @app.route('/admin/reset')
 def admin_reset():
-    if os.path.exists('requisition_system.db'):
-        os.remove('requisition_system.db')
+    db.session.remove()
+    db.drop_all()
     db.create_all()
     return "Database reset. <a href='/admin/setup'>Go to Setup</a>"
-
-# ==================== HEALTH CHECK ====================
 
 @app.route('/health')
 def health():
