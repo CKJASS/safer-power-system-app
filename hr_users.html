@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="manifest" href="/static/manifest.json">
+    <meta name="theme-color" content="#f0a500">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Safer Power">
+    <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
+    <title>Safer Power Group - User Management</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body { background: #f4f6f9; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .logo-nav { background: rgba(255,255,255,0.1); padding: 5px 10px; border-radius: 8px; }
+        .role-badge { font-size: 0.75rem; padding: 3px 8px; border-radius: 20px; font-weight: 600; }
+        .no-dept { color: #dc3545; font-style: italic; font-size: 0.85rem; }
+        .dept-select { min-width: 160px; font-size: 0.875rem; }
+        .user-row:hover { background: #f8f9ff; }
+        .table thead th { background: #343a40; color: #fff; font-weight: 500; border: none; }
+        .search-box { max-width: 300px; }
+        .dept-pill {
+            display: inline-flex; align-items: center; gap: 6px;
+            background: #e9ecef; border-radius: 20px;
+            padding: 4px 10px; font-size: 0.82rem; font-weight: 500;
+        }
+        .dept-pill .del-btn {
+            background: none; border: none; color: #dc3545;
+            cursor: pointer; padding: 0; font-size: 0.75rem; line-height: 1;
+        }
+        .dept-pill .del-btn:hover { color: #a71d2a; }
+        .section-title { font-size: 1rem; font-weight: 700; color: #343a40; }
+        .tab-nav .nav-link { color: #495057; font-weight: 500; }
+        .tab-nav .nav-link.active { background: #f0a500; color: #fff; border-color: #f0a500; }
+    </style>
+</head>
+<body>
+
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark shadow-sm">
+    <div class="container">
+        <a class="navbar-brand d-flex align-items-center" href="{{ url_for('dashboard') }}">
+            <div class="logo-nav">
+                <img src="{{ url_for('static', filename='logo.png') }}" alt="Logo" style="max-height:35px;">
+            </div>
+            <span class="fw-bold text-warning ms-2">Safer Power Group</span>
+        </a>
+        <div class="ms-auto text-light me-3 d-none d-md-inline-block">
+            <strong>{{ session['user_name'] }}</strong>
+            <span class="text-warning">({{ session['user_role'] }})</span>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="{{ url_for('dashboard') }}" class="btn btn-outline-light btn-sm">
+                <i class="fas fa-arrow-left me-1"></i>Dashboard
+            </a>
+            <a href="{{ url_for('logout') }}" class="btn btn-danger btn-sm">Sign Out</a>
+        </div>
+    </div>
+</nav>
+
+<div class="container my-4">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, msg in messages %}
+            <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                <i class="fas fa-{% if category == 'success' %}check-circle{% elif category == 'danger' %}exclamation-triangle{% else %}info-circle{% endif %} me-2"></i>{{ msg }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+    <div class="d-flex flex-column flex-sm-row justify-content-between align-items-sm-center mb-4 gap-2">
+        <div>
+            <h2 class="fw-bold text-dark m-0">
+                <i class="fas fa-users-cog text-warning me-2"></i>HR Management Panel
+            </h2>
+            <p class="text-muted m-0">Manage departments and assign staff to departments</p>
+        </div>
+        <div class="d-flex gap-2">
+            <span class="badge bg-dark fs-6">{{ users|length }} Users</span>
+            <span class="badge bg-warning text-dark fs-6">{{ departments|length }} Depts</span>
+        </div>
+    </div>
+
+    <!-- Tabs -->
+    <ul class="nav nav-tabs tab-nav mb-4" id="hrTabs" role="tablist">
+        <li class="nav-item">
+            <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-users" type="button">
+                <i class="fas fa-users me-1"></i> User Assignments
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-departments" type="button">
+                <i class="fas fa-building me-1"></i> Manage Departments
+                <span class="badge bg-secondary ms-1">{{ departments|length }}</span>
+            </button>
+        </li>
+    </ul>
+
+    <div class="tab-content">
+
+        <!-- ===== TAB 1: USER ASSIGNMENTS ===== -->
+        <div class="tab-pane fade show active" id="tab-users">
+
+            <!-- Summary Cards -->
+            <div class="row g-3 mb-4">
+                <div class="col-6 col-md-3">
+                    <div class="card border-0 shadow-sm text-center p-3">
+                        <div class="fs-3 fw-bold text-primary" id="count-employee">—</div>
+                        <small class="text-muted">Employees</small>
+                    </div>
+                </div>
+                <div class="col-6 col-md-3">
+                    <div class="card border-0 shadow-sm text-center p-3">
+                        <div class="fs-3 fw-bold text-info" id="count-supervisor">—</div>
+                        <small class="text-muted">Supervisors</small>
+                    </div>
+                </div>
+                <div class="col-6 col-md-3">
+                    <div class="card border-0 shadow-sm text-center p-3">
+                        <div class="fs-3 fw-bold text-success" id="count-assigned">—</div>
+                        <small class="text-muted">Dept Assigned</small>
+                    </div>
+                </div>
+                <div class="col-6 col-md-3">
+                    <div class="card border-0 shadow-sm text-center p-3">
+                        <div class="fs-3 fw-bold text-danger" id="count-unassigned">—</div>
+                        <small class="text-muted">No Department</small>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Filters -->
+            <div class="card border-0 shadow-sm p-3 mb-3">
+                <div class="d-flex flex-wrap gap-2 align-items-center">
+                    <input type="text" id="search-input" class="form-control search-box" placeholder="Search name or email…">
+                    <select id="filter-role" class="form-select" style="max-width:170px;">
+                        <option value="">All Roles</option>
+                        <option value="Employee">Employee</option>
+                        <option value="Supervisor">Supervisor</option>
+                        <option value="HOD">HOD</option>
+                        <option value="HR">HR</option>
+                        <option value="Procurement">Procurement</option>
+                        <option value="Finance">Finance</option>
+                        <option value="GM">GM</option>
+                    </select>
+                    <select id="filter-dept" class="form-select" style="max-width:200px;">
+                        <option value="">All Departments</option>
+                        <option value="__none__">No Department</option>
+                        {% for dept in departments %}
+                        <option value="{{ dept.name }}">{{ dept.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <!-- Users Table -->
+            <div class="card border-0 shadow-sm">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0" id="users-table">
+                        <thead>
+                            <tr>
+                                <th style="width:40px;">#</th>
+                                <th>Name</th>
+                                <th>Email</th>
+                                <th>Role</th>
+                                <th>Current Department</th>
+                                <th style="min-width:260px;">Assign Department</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for user in users %}
+                            <tr class="user-row"
+                                data-name="{{ user.name|lower }}"
+                                data-email="{{ user.email|lower }}"
+                                data-role="{{ user.role }}"
+                                data-dept="{{ user.department_ref.name if user.department_ref else '' }}">
+                                <td class="text-muted small">{{ loop.index }}</td>
+                                <td><strong>{{ user.name }}</strong>{% if not user.is_active %}<span class="badge bg-secondary ms-1">Inactive</span>{% endif %}</td>
+                                <td class="text-muted small">{{ user.email }}</td>
+                                <td>
+                                    <span class="badge role-badge
+                                        {% if user.role == 'Employee' %}bg-primary
+                                        {% elif user.role == 'Supervisor' %}bg-info text-dark
+                                        {% elif user.role == 'HOD' %}bg-dark
+                                        {% elif user.role == 'HR' %}bg-purple
+                                        {% elif user.role == 'Procurement' %}bg-warning text-dark
+                                        {% elif user.role == 'Finance' %}bg-success
+                                        {% elif user.role == 'GM' %}bg-danger
+                                        {% else %}bg-secondary{% endif %}">
+                                        {{ user.role }}
+                                    </span>
+                                </td>
+                                <td>
+                                    {% if user.department_ref %}
+                                    <span class="badge bg-secondary">{{ user.department_ref.name }}</span>
+                                    {% else %}
+                                    <span class="no-dept"><i class="fas fa-exclamation-triangle me-1"></i>Not assigned</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <form method="POST" action="{{ url_for('hr_assign_department') }}" class="d-flex gap-2 align-items-center">
+                                        <input type="hidden" name="user_id" value="{{ user.id }}">
+                                        <select name="department_id" class="form-select form-select-sm dept-select">
+                                            <option value="">— Remove dept —</option>
+                                            {% for dept in departments %}
+                                            <option value="{{ dept.id }}" {% if user.department_id == dept.id %}selected{% endif %}>{{ dept.name }}</option>
+                                            {% endfor %}
+                                        </select>
+                                        <button type="submit" class="btn btn-sm btn-warning fw-semibold" title="Save">
+                                            <i class="fas fa-save"></i>
+                                        </button>
+                                    </form>
+                                </td>
+                                <td>
+                                    <form method="POST" action="{{ url_for('delete_user', user_id=user.id) }}"
+                                          onsubmit="return confirm('Permanently delete {{ user.name }}\'s account? This cannot be undone.')">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete account">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                    </form>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <div id="no-results" class="text-center py-4 text-muted d-none">
+                    <i class="fas fa-search fa-2x mb-2 d-block"></i>No users match the current filter.
+                </div>
+            </div>
+        </div>
+
+        <!-- ===== TAB 2: MANAGE DEPARTMENTS ===== -->
+        <div class="tab-pane fade" id="tab-departments">
+            <div class="row g-4">
+
+                <!-- Add Department Form -->
+                <div class="col-12 col-md-4">
+                    <div class="card border-0 shadow-sm h-100">
+                        <div class="card-body">
+                            <h6 class="section-title mb-3"><i class="fas fa-plus-circle text-success me-2"></i>Add New Department</h6>
+                            <form method="POST" action="{{ url_for('hr_add_department') }}">
+                                <div class="mb-3">
+                                    <label class="form-label fw-semibold">Department Name <span class="text-danger">*</span></label>
+                                    <input type="text" name="name" class="form-control" required placeholder="e.g. Solar Projects" maxlength="100">
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label fw-semibold">Description</label>
+                                    <input type="text" name="description" class="form-control" placeholder="Short description (optional)" maxlength="200">
+                                </div>
+                                <button type="submit" class="btn btn-success w-100">
+                                    <i class="fas fa-plus me-1"></i> Create Department
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Existing Departments -->
+                <div class="col-12 col-md-8">
+                    <div class="card border-0 shadow-sm">
+                        <div class="card-body">
+                            <h6 class="section-title mb-3">
+                                <i class="fas fa-building text-warning me-2"></i>All Departments
+                                <span class="badge bg-secondary ms-2">{{ departments|length }}</span>
+                            </h6>
+
+                            {% if departments %}
+                            <div class="table-responsive">
+                                <table class="table table-hover align-middle mb-0">
+                                    <thead>
+                                        <tr>
+                                            <th>Department</th>
+                                            <th>Description</th>
+                                            <th class="text-center">Staff</th>
+                                            <th></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for dept in departments %}
+                                        <tr>
+                                            <td>
+                                                <span class="fw-semibold">{{ dept.name }}</span>
+                                            </td>
+                                            <td class="text-muted small">{{ dept.description or '—' }}</td>
+                                            <td class="text-center">
+                                                <span class="badge {% if dept.users|length > 0 %}bg-primary{% else %}bg-light text-dark border{% endif %}">
+                                                    {{ dept.users|length }}
+                                                </span>
+                                            </td>
+                                            <td class="text-end">
+                                                {% if dept.users|length == 0 %}
+                                                <form method="POST" action="{{ url_for('hr_delete_department', dept_id=dept.id) }}"
+                                                      onsubmit="return confirm('Delete department \'{{ dept.name }}\'? This cannot be undone.');">
+                                                    <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete">
+                                                        <i class="fas fa-trash-alt"></i>
+                                                    </button>
+                                                </form>
+                                                {% else %}
+                                                <span class="text-muted small" title="Cannot delete — has staff assigned">
+                                                    <i class="fas fa-lock"></i>
+                                                </span>
+                                                {% endif %}
+                                            </td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                            {% else %}
+                            <div class="text-center py-4 text-muted">
+                                <i class="fas fa-building fa-2x mb-2 d-block"></i>No departments yet. Add one using the form.
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+    </div><!-- /tab-content -->
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    const rows = document.querySelectorAll('#users-table tbody .user-row');
+    const searchInput = document.getElementById('search-input');
+    const filterRole  = document.getElementById('filter-role');
+    const filterDept  = document.getElementById('filter-dept');
+    const noResults   = document.getElementById('no-results');
+
+    function updateCounts() {
+        let emp = 0, sup = 0, assigned = 0, unassigned = 0;
+        rows.forEach(r => {
+            if (r.dataset.role === 'Employee')   emp++;
+            if (r.dataset.role === 'Supervisor') sup++;
+            if (r.dataset.dept) assigned++; else unassigned++;
+        });
+        document.getElementById('count-employee').textContent   = emp;
+        document.getElementById('count-supervisor').textContent = sup;
+        document.getElementById('count-assigned').textContent   = assigned;
+        document.getElementById('count-unassigned').textContent = unassigned;
+    }
+
+    function filterRows() {
+        const q    = searchInput.value.toLowerCase();
+        const role = filterRole.value;
+        const dept = filterDept.value;
+        let visible = 0;
+        rows.forEach(r => {
+            const matchQ    = !q    || r.dataset.name.includes(q) || r.dataset.email.includes(q);
+            const matchRole = !role || r.dataset.role === role;
+            const matchDept = !dept
+                || (dept === '__none__' && !r.dataset.dept)
+                || (dept !== '__none__' && r.dataset.dept === dept);
+            const show = matchQ && matchRole && matchDept;
+            r.style.display = show ? '' : 'none';
+            if (show) visible++;
+        });
+        noResults.classList.toggle('d-none', visible > 0);
+    }
+
+    searchInput.addEventListener('input',  filterRows);
+    filterRole.addEventListener('change',  filterRows);
+    filterDept.addEventListener('change',  filterRows);
+    updateCounts();
+
+    // If page loaded after dept tab action, re-open dept tab
+    if (window.location.hash === '#depts') {
+        document.querySelector('[data-bs-target="#tab-departments"]').click();
+    }
+
+    setTimeout(() => document.querySelectorAll('.alert').forEach(a => new bootstrap.Alert(a).close()), 4000);
+</script>
+<script>
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/static/sw.js');
+}
+</script>
+</body>
+</html>
